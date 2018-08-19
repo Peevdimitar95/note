@@ -7,21 +7,18 @@ import os
 import httplib2
 import sys
 
+
 import google.oauth2.credentials
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
 
-from apiclient.discovery import build
-from apiclient.errors import HttpError
-from oauth2client.client import flow_from_clientsecrets
-from oauth2client.file import Storage
-from oauth2client.tools import argparser, run_flow
 
 
 CLIENT_SECRETS_FILE = "client_secret.json"
 SCOPES = ['https://www.googleapis.com/auth/youtube.force-ssl']
 API_SERVICE_NAME = 'youtube'
 API_VERSION = 'v3'
+
 
 
 note = Flask(__name__)
@@ -35,7 +32,18 @@ def index_page(name=None):
     if 'credentials' not in flask.session:
       # return flask.redirect('login')
       return flask.redirect("login")
-    return flsk.redirect("user")
+
+    credentials = google.oauth2.credentials.Credentials(
+      **flask.session['credentials'])
+
+    client = googleapiclient.discovery.build(
+      API_SERVICE_NAME, API_VERSION, credentials=credentials)
+
+    return channels_list_by_username(client,
+    part='snippet,contentDetails,statistics',
+    forUsername='GoogleDevelopers'), flask.redirect("user") # TO DO: Check if return properly!
+
+    # return flsk.redirect("user")
 
 
 @note.route("/login")
@@ -69,18 +77,59 @@ def create_acc(name=None):
 @note.route("/user", methods=["POST", "GET"])
 def user_page(name=None):
     # if request.method == "POST":
-        # print ("Usr:  %s Pass: %s" % (request.form["username"], request.form["password"]))
+    # print ("Usr:  %s Pass: %s" % (request.form["username"], request.form["password"]))
+    # Specify the state when creating the flow in the callback so that it can
+  # verify the authorization server response.
+  state = flask.session['state']
+  flow = google_auth_oauthlib.flow.Flow.from_client_secrets_file(
+      CLIENT_SECRETS_FILE, scopes=SCOPES, state=state)
+  flow.redirect_uri = flask.url_for('user_page', _external=True)
 
-    return render_template("user.html", name=name)
+  # Use the authorization server's response to fetch the OAuth 2.0 tokens.
+  authorization_response = flask.request.url
+  flow.fetch_token(authorization_response=authorization_response)
+
+  # Store the credentials in the session.
+  # ACTION ITEM for developers:
+  #     Store user's access and refresh tokens in your data store if
+  #     incorporating this code into your real app.
+  credentials = flow.credentials
+  flask.session['credentials'] = {
+      'token': credentials.token,
+      'refresh_token': credentials.refresh_token,
+      'token_uri': credentials.token_uri,
+      'client_id': credentials.client_id,
+      'client_secret': credentials.client_secret,
+      'scopes': credentials.scopes
+  }
+
+  # return flask.redirect(flask.url_for('index'))
+  return render_template("user.html", name=name)
+
+def channels_list_by_username(client, **kwargs):
+  response = client.channels().list(
+    **kwargs
+  ).execute()
+
+  return flask.jsonify(**response)
+
+def channels_list_by_username(client, **kwargs):
+  response = client.channels().list(
+    **kwargs
+  ).execute()
+
+  return flask.jsonify(**response)
 
 
 @note.route("/albums", methods=["POST", "GET"])
 def user_album(name=None):
-    return render_template("albums.html", name=name)
+
+  return render_template("albums.html", name=name)
 
 
 if __name__ == '__main__':
+    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
     note.debug = True
     server = Server(note.wsgi_app)
     server.serve()
-
